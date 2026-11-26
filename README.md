@@ -7,7 +7,7 @@ _This project has been created as part of the 42 curriculum by mromao-s._
 **call me maybe** turns natural-language requests into structured function calls
 using a small language model, **Qwen3-0.6B**.
 
-Given a list of available functions (name, description, typed parameters) and a
+Given a list of available functions (name, description, typed paramhttps://github.com/Strafqw/Call-me-Maybe.giteters) and a
 list of prompts such as `"What is the sum of 2 and 3?"`, the program asks the
 model to choose the right function and fill in its arguments, and writes the
 result as JSON:
@@ -80,18 +80,19 @@ The model therefore still makes every choice, but only among valid options.
 
 Different parts of the JSON use different rules:
 
-| Part          | Rule for an allowed token                                                                                                                                 |
-| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Function name | `written + token` must still be the start of some `function_name"`                                                                                        |
-| Number        | `written + token` must still be the start of a valid number (`-`, digits, one `.`); once the number is complete, a token starting with `,` or `}` ends it |
-| String        | no `"`, no newline; a token starting with `"` closes the string                                                                                           |
-| Boolean       | same as the function name, with the options `true` / `false`                                                                                              |
+| Part          | Rule for an allowed token                                                                                                                                           |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Function name | `written + token` must still be the start of some `function_name"`                                                                                                  |
+| Number        | `written + token` must still be the start of a valid number (`-`, digits, one `.`); once the number is complete, a token starting with `,` or `}` ends it           |
+| String        | first token: `"` or ` "` plus content; then no newline and no unescaped `"`, except a closing `"` at the end of a token, optionally followed by the next `,` or `}` |
+| Boolean       | same as the function name, with the options `true` / `false`                                                                                                        |
 
 ### 4. Fixed text
 
-Everything that is always the same is not generated: `", "parameters": {"`,
-the parameter names, commas and quotes are encoded and appended directly
-(`_add_manual_text`). This saves model calls and guarantees the structure of
+Everything that is always the same is not generated: `, "parameters": {`,
+the parameter names, and the `,` or `}` after numbers and booleans are encoded
+and appended directly (`_add_manual_text`). The quotes around string values
+are the exception: the model writes them itself (see Challenges). This saves model calls and guarantees the structure of
 the JSON. The model is only asked for the parts it must decide: the function
 name and the values.
 
@@ -117,15 +118,9 @@ Measured on the provided test set (11 prompts) on a MacBook:
 - **Valid JSON:** 100% — guaranteed by construction, every value goes through a
   constrained step and the result is validated with pydantic.
 - **Correct function chosen:** 11 / 11.
-- **Fully correct calls (function + all arguments):** 10 / 11 (91%). The one
-  failure is the "replace all numbers" regex prompt (see Challenges).
+- **Fully correct calls (function + all arguments):** 11 / 11 (100%).
 - **Time:** about 65–70 seconds for the whole set (limit: 5 minutes), plus a few
   seconds to load the model.
-
-Most of the time is spent in the model itself: the SDK has no KV cache, so every
-new token re-processes the whole prompt. Building the allowed list scans the
-~151k-token vocabulary in Python at every step, which is simple but could be
-precomputed for the rules that never change.
 
 ## Challenges
 
@@ -162,8 +157,9 @@ the model writes `regex: "NUMBERS"` instead of a real pattern such as `\d+`.
 - A system-prompt rule that mentions `\d+` made the model write `\d+`, but it
   then repeated `|\d+|\d+|...` until the length limit — and the hint almost
   gives away the answer for this exact prompt, which would be overfitting the
-  test set. A worked example with a different regex task did not help. This
-  prompt is still wrong: no general fix was found.
+  test set. A worked example with a different regex task did not help.
+- The real cause turned out to be in the decoder, not the prompt: see
+  "Values that never ended" below. After that fix the model writes `\d+`.
 
 **Spaces at the start of string values (solved).** For
 `Replace all vowels in 'Programming is fun' with asterisks`, the regex
@@ -181,12 +177,26 @@ the model writes `regex: "NUMBERS"` instead of a real pattern such as `\d+`.
    into tokens. With this change the result is `*`, and the other prompts
    are not affected.
 
-Trade-off: a value that really starts or ends with a space (for example
-"replace with a space") would lose that space. This is rare in function
-arguments, so removing tokenizer spaces was the better choice.
+**Values that never ended: quotes inside tokens (solved).**
+The tokenizer often merges the end of a value with the quote (`)",`, `+"`),
+so the rule was blocking exactly the tokens the model wanted to use to finish
+a value. The same problem caused the `NUMBERS` regex above. Three changes in
+`_add_string` fixed it:
 
-Result on the provided test set: **10 / 11 fully correct (91%)**, 11 / 11
-correct function names.
+1. **Closing quote at the end of a token:** a token is allowed if it is
+   content followed by a closing `"`, optionally followed by the character
+   that comes next (`,` or `}`, passed in as `end`). The chosen token is
+   kept in the ids, so the model sees its own token instead of a quote added
+   separately.
+2. **Opening quote written by the model ("token healing"):** the parameter
+   name is appended as `"path":` and the model picks the first token from
+   the tokens that start with `"` or ` "`. Before, the manual `"` was a token
+   split the model rarely sees, and `/home/user/data.json` lost its leading
+   `/` because the model never chose the merged ` "/` token.
+3. **Escaped quotes inside values:** a `"` preceded by a backslash no longer
+   closes or blocks the string, so a value can contain `\"`.
+
+Result: the provided test set went from 10 / 11 to **11 / 11**.
 
 ## Testing strategy
 
@@ -197,7 +207,6 @@ correct function names.
 - Testing the helper functions alone (for example `_is_number` with `"3."`,
   `"-"`, `"12"`, `"1.5"`), which found a crash on `"-"` and a bug that made
   decimals impossible.
-- Error cases: missing file, invalid JSON, wrong schema in the input files.
 - `make lint` (flake8 + mypy) with no errors.
 
 ## Example usage
@@ -243,10 +252,10 @@ $ cat data/output/function_calls.json
 
 ### AI usage
 
-Claude (Anthropic) was used as a tutor during this project: to explain
+AI was used as a tutor during this project: to explain
 byte-level BPE tokenization and constrained decoding, to review my code and
 point out bugs (for example the wrong quote character in the function-name
 targets, encoding the question instead of the full prompt, and the number
 parsing bugs), to investigate the regex difficulty described above by printing
 the model's top scores, and to help draft this README. The structure of the
-program and the code are my own, and I can explain every part of it.
+program is my own, and I can explain every part of it.

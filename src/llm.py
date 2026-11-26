@@ -18,6 +18,7 @@ class llm(BaseModel):
     byte_decoder: dict[str, int] = {}
     vocab_size: int = 0
     texts: list[str] = []
+    string_start: list[int] = []
 
     def model_post_init(self, context: Any) -> None:
         """Load the model and build the text of every token."""
@@ -27,6 +28,21 @@ class llm(BaseModel):
         self.vocab = self._read_json(vocab_path)
         self.byte_decoder = self._byte_decoder()
         self._id_to_token()
+        self.string_start = self._string_start_tokens()
+
+    def _string_start_tokens(self) -> list[int]:
+        """Tokens that open a JSON string: '"' or ' "' followed by content."""
+        allowed = []
+        for token_id, text in enumerate(self.texts):
+            for prefix in (' "', '"'):
+                if text.startswith(prefix):
+                    rest = text[len(prefix):]
+                    if ("\n" not in rest
+                            and self._first_unescaped_quote(rest, False)
+                            == -1):
+                        allowed.append(token_id)
+                    break
+        return allowed
 
     def _bytes_to_unicode(self) -> dict[int, str]:
         """
@@ -184,31 +200,50 @@ class llm(BaseModel):
             count += 1
         return count % 2 == 1
 
-    def _add_string(self, ids: list[int]) -> str:
+    def _first_unescaped_quote(self, text: str, escape: bool) -> int:
+        """Index of the first '"' in text that is not escaped, or -1."""
+        for i, char in enumerate(text):
+            if escape:
+                escape = False
+            elif char == "\\":
+                escape = True
+            elif char == '"':
+                return i
+        return -1
+
+    def _add_string(self, ids: list[int], end: str) -> str:
         """
         Let the model write a string value until it closes the quote.
 
         JSON escapes (like \\\\d) are decoded, and spaces left at the
         start or end by the tokenizer are removed.
         """
-        writen = ""
+        token_id = self._next_token(ids, self.string_start)
+        ids.append(token_id)
+        first = self.texts[token_id]
+        writen = first[first.index('"') + 1:]
         for _ in range(60):     # safety limit
             escape = self._ends_with_escape(writen)
             allowed = []
             for token_id, text in enumerate(self.texts):
-                if text == "":
+                if text == "" or "\n" in text:
                     continue
-                if text[0] == '"':
-                    if not escape:
-                        allowed.append(token_id)
-                elif '"' not in text and "\n" not in text:
+                if '"' not in text:
+                    allowed.append(token_id)
+                    continue
+                pos = self._first_unescaped_quote(text, escape)
+                if pos == -1 or text[pos + 1:] in ("", end):
                     allowed.append(token_id)
 
             token_id = self._next_token(ids, allowed)
             text = self.texts[token_id]
-            if text[0] == '"':
-                break
             ids.append(token_id)
+            pos = self._first_unescaped_quote(text, escape)
+            if pos != -1:
+                writen += text[:pos]
+                if text[pos + 1:] == "":
+                    self._add_manual_text(ids, end)
+                break
             writen += text
 
         value: str
@@ -271,27 +306,26 @@ class llm(BaseModel):
         func_def = next(f for f in funcs if f['name'] == func_name)
 
         params: dict[str, Any] = {}
-        first = True
-        for param, type in func_def['parameters'].items():
-            if first:
-                self._add_manual_text(ids, ', "parameters": {')
-                first = False
-            else:
-                self._add_manual_text(ids, ", ")
+        items = list(func_def['parameters'].items())
+        for i, (param, type) in enumerate(items):
+            end = "}" if i == len(items) - 1 else ","
+            prefix = ', "parameters": {' if i == 0 else " "
             if type['type'] == 'string':
-                self._add_manual_text(ids, '"' + param + '": "')
+                self._add_manual_text(ids, prefix + '"' + param + '":')
             else:
-                self._add_manual_text(ids, '"' + param + '": ')
+                self._add_manual_text(ids, prefix + '"' + param + '": ')
 
             if type['type'] == 'number':
                 params[param] = self._add_number(ids)
+                self._add_manual_text(ids, end)
             elif type['type'] == 'integer':
                 params[param] = self._add_number(ids, integer=True)
+                self._add_manual_text(ids, end)
             elif type['type'] == 'string':
-                params[param] = self._add_string(ids)
-                self._add_manual_text(ids, '"')
+                params[param] = self._add_string(ids, end)
             elif type['type'] == "boolean":
                 wrd = self._chose_function(ids, ["true", "false"], end="")
                 params[param] = (wrd == 'true')
+                self._add_manual_text(ids, end)
 
         return {"prompt": question, "name": func_name, "parameters": params}
