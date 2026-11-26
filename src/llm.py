@@ -222,7 +222,7 @@ class llm(BaseModel):
         ids.append(token_id)
         first = self.texts[token_id]
         writen = first[first.index('"') + 1:]
-        for _ in range(60):     # safety limit
+        for _ in range(60):
             escape = self._ends_with_escape(writen)
             allowed = []
             for token_id, text in enumerate(self.texts):
