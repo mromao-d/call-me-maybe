@@ -2,8 +2,8 @@
 from pydantic import BaseModel, ConfigDict
 from typing import Literal, Union
 
-types = Literal['number', 'string', 'boolean']
-RealTypes = Union[float, str, bool]
+types = Literal['number', 'integer', 'string', 'boolean']
+RealTypes = Union[bool, int, float, str]
 
 
 class schemaPrompt(BaseModel):

@@ -119,13 +119,18 @@ class llm(BaseModel):
         """
         ids.extend(self.model.encode(text)[0].tolist())
 
-    def _is_number(self, text: str, full: bool = False) -> bool:
+    def _is_number(
+        self, text: str, full: bool = False, integer: bool = False
+    ) -> bool:
         """
         Check a number.
 
         full=False: text can still become a number ('-', '12', '3.').
         full=True: text is a complete number ('12', '-3.5').
+        integer=True: no decimal point is allowed ('12', '-3').
         """
+        if integer and "." in text:
+            return False
         if full and (text in ("", "-") or text.endswith(".")):
             return False
         if text.startswith('-'):
@@ -139,17 +144,24 @@ class llm(BaseModel):
                 return False
         return True
 
-    def _add_number(self, ids: list[int]) -> float:
-        """Let the model write a number and return it as a float."""
+    def _add_number(
+        self, ids: list[int], integer: bool = False
+    ) -> int | float:
+        """
+        Let the model write a number.
+
+        Returns an int if integer=True, otherwise a float.
+        """
         writen = ""
         for _ in range(20):
             allowed = []
             for token_id, text in enumerate(self.texts):
                 if text == "":
                     continue
-                if self._is_number(writen + text):
+                if self._is_number(writen + text, integer=integer):
                     allowed.append(token_id)
-                elif self._is_number(writen, True) and text[0] in ",}":
+                elif (self._is_number(writen, True, integer)
+                      and text[0] in ",}"):
                     allowed.append(token_id)
 
             token_id = self._next_token(ids, allowed)
@@ -159,9 +171,9 @@ class llm(BaseModel):
             ids.append(token_id)
             writen = writen + text
 
-        if not self._is_number(writen, True):
+        if not self._is_number(writen, True, integer):
             raise ValueError(f"Bad number: {writen!r}")
-        return float(writen)
+        return int(writen) if integer else float(writen)
 
     def _ends_with_escape(self, text: str) -> bool:
         """True if text ends with an unfinished backslash escape."""
@@ -273,6 +285,8 @@ class llm(BaseModel):
 
             if type['type'] == 'number':
                 params[param] = self._add_number(ids)
+            elif type['type'] == 'integer':
+                params[param] = self._add_number(ids, integer=True)
             elif type['type'] == 'string':
                 params[param] = self._add_string(ids)
                 self._add_manual_text(ids, '"')
