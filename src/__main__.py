@@ -1,65 +1,67 @@
-# from pathlib import Path
-
-# from .json import load_funcs, load_prompt, write_output
-
-
-# path = Path.cwd()/'data/input/function_calling_tests.json'
-# path2 = Path.cwd()/'data/input/functions_definition.json'
-# path3 = Path.cwd()/'data/output/function_calling_results.json'
-
-# try:
-#     print(load_prompt(path))
-#     print()
-#     print(load_funcs(path2))
-#     print()
-#     write_output(path3, '[{"prompt": "What is the sum of 2 and 3?","name": "fn_add_numbers","parameters": {"a": 2.0, "b": 3.0}}]')
-# except Exception as e:
-#     print(e)
-
-
-# print("blablabla")
-
-################################################
-#                     LLM                      #
-################################################
-
-
-
-
-
-
-# print(repr(token_to_text("Ġthe")))   # ' the'
-# print(repr(token_to_text("Ċ")))      # '\n'
-# print(repr(token_to_text("ĠĠ")))     # '  '
-# print(len(bytes_to_unicode()))       # 256
-
-
-# print(bytes_to_unicode())
-
-
-from src.llm import llm
+"""Entry point: uv run python -m src."""
+import argparse
+import sys
 from pathlib import Path
-from src.deal_json import _FUNC_ADAPTER, load_funcs
+from typing import Any
 
-path = Path.cwd()/'data/input/functions_definition.json'
-funcs = _FUNC_ADAPTER.dump_python(load_funcs(path))
-
-llm = llm()
-questions = llm._validate_prompts()
-# print(questions)
-print(llm.llm(questions[0].get('prompt'), funcs))
-# question = questions[0].get('prompt')
-# prompt = llm._build_prompt(question, funcs)
-# ids = llm.model.encode(prompt)[0].tolist()
+from .deal_json import _FUNC_ADAPTER, ReadJsonException
+from .deal_json import load_funcs, write_output
+from .llm import llm
 
 
-# # print()
-# # print(f"ids are {ids}")
-# # print()
-# # print(f"prompt is {prompt}")
-# # model.llm(prompt)
-# print()
-# print(llm._chose_function(ids, [func.get('name') for func in funcs]))
-# # for f in funcs:
-# #     print(f.get('name'))
-# # model._chose_function()
+def parse_args() -> argparse.Namespace:
+    """Read the command line options."""
+    parser = argparse.ArgumentParser(
+        description="Function calling with a small LLM"
+    )
+    parser.add_argument(
+        "--functions_definition",
+        default="data/input/functions_definition.json"
+    )
+    parser.add_argument(
+        "--input",
+        default="data/input/function_calling_tests.json"
+    )
+    parser.add_argument(
+        "--output",
+        default="data/output/function_calls.json"
+    )
+    return parser.parse_args()
+
+
+def main() -> None:
+    """Load the files, ask the model for every prompt, write the results."""
+    args = parse_args()
+
+    try:
+        funcs = _FUNC_ADAPTER.dump_python(
+            load_funcs(Path(args.functions_definition))
+        )
+        model = llm()
+        prompts = model._validate_prompts(Path(args.input))
+    except ReadJsonException as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"Error: could not load the model: {e}")
+        sys.exit(1)
+
+    result: list[dict[str, Any]] = []
+    for prompt in prompts:
+        question = prompt['prompt']
+        print(f"processing {question}")
+        try:
+            result.append(model.llm(question, funcs))
+        except Exception as e:
+            print(f"Error: skipped {question!r}: {e}")
+
+    try:
+        write_output(Path(args.output), result)
+    except ReadJsonException as e:
+        print(f"Error: {e}")
+        sys.exit(1)
+    print(f"Saved {len(result)} results to {args.output}")
+
+
+if __name__ == '__main__':
+    main()

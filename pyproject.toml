@@ -1,22 +1,32 @@
 [project]
 name = "call-me-maybe"
 version = "0.1.0"
-description = "Add your description here"
+description = "Function calling with a small LLM using constrained decoding"
 readme = "README.md"
 authors = [
     { name = "ManuelRomao", email = "romaog.manuel@gmail.com" }
 ]
-requires-python = ">=3.13"
+requires-python = ">=3.10"
 dependencies = [
-    "mypy>=2.4.1",
-    "pydantic>=2.14.3",
-    "torch>=2.15.0",
-    "transformers>=5.22.2",
+    "llm-sdk",
+    "numpy>=2.0",
+    "pydantic>=2.0",
 ]
 
-[project.scripts]
-call-me-maybe = "call_me_maybe:main"
+[dependency-groups]
+dev = [
+    "flake8",
+    "mypy",
+]
 
-[build-system]
-requires = ["uv_build>=0.13.7,<0.14.0"]
-build-backend = "uv_build"
+[tool.uv.sources]
+llm-sdk = { path = "llm_sdk" }
+
+[[tool.mypy.overrides]]
+module = ["llm_sdk", "llm_sdk.*"]
+follow_imports = "skip"
+ignore_missing_imports = true
+
+[tool.mypy]
+explicit_package_bases = true
+exclude = ["llm_sdk/", ".venv/"]
