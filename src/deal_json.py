@@ -13,7 +13,18 @@ class ReadJsonException(Exception):
 
 
 def _read_json(path: Path) -> Any:
-    """Read a JSON file and return its content."""
+    """Read a JSON file and return its content.
+
+    Args:
+        path: Path to the JSON file.
+
+    Returns:
+        The parsed JSON content.
+
+    Raises:
+        ReadJsonException: If the file is missing, cannot be read or is
+            not valid JSON.
+    """
     try:
         with path.open('r', encoding='utf-8') as fd:
             content = json.load(fd)
@@ -37,7 +48,18 @@ _OUTPUT_ADAPTER = TypeAdapter(list[schemaOutput])
 
 
 def load_prompt(path: Path) -> list[schemaPrompt]:
-    """Load and validate the prompts file."""
+    """Load and validate the prompts file.
+
+    Args:
+        path: Path to the prompts JSON file.
+
+    Returns:
+        The validated prompts.
+
+    Raises:
+        ReadJsonException: If the file cannot be read, is not valid JSON
+            or does not match the expected format.
+    """
     try:
         return _PROMPT_ADAPTER.validate_python(_read_json(path))
     except ValidationError as e:
@@ -45,7 +67,18 @@ def load_prompt(path: Path) -> list[schemaPrompt]:
 
 
 def load_funcs(path: Path) -> list[schemaFunctions]:
-    """Load and validate the functions definition file."""
+    """Load and validate the functions definition file.
+
+    Args:
+        path: Path to the functions definition JSON file.
+
+    Returns:
+        The validated function definitions.
+
+    Raises:
+        ReadJsonException: If the file cannot be read, is not valid JSON
+            or does not match the expected format.
+    """
     try:
         return _FUNC_ADAPTER.validate_python(_read_json(path))
     except ValidationError as e:
@@ -55,7 +88,18 @@ def load_funcs(path: Path) -> list[schemaFunctions]:
 
 
 def write_output(path: Path, data: list[dict[str, Any]]) -> None:
-    """Validate the results and write them to the output file."""
+    """Validate the results and write them to the output file.
+
+    The parent directory is created if it does not exist.
+
+    Args:
+        path: Path of the output JSON file.
+        data: One dict per answered prompt.
+
+    Raises:
+        ReadJsonException: If the results do not match the output format
+            or the file cannot be written.
+    """
     try:
         validated = _OUTPUT_ADAPTER.validate_python(data)
         output = _OUTPUT_ADAPTER.dump_json(validated, indent=2)

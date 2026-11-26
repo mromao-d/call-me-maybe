@@ -10,7 +10,12 @@ from .llm import llm
 
 
 def parse_args() -> argparse.Namespace:
-    """Read the command line options."""
+    """Read the command-line options.
+
+    Returns:
+        The parsed options: the functions_definition, input and output
+        paths.
+    """
     parser = argparse.ArgumentParser(
         description="Function calling with a small LLM"
     )
@@ -30,7 +35,13 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    """Load the files, ask the model for every prompt, write the results."""
+    """Run the program from the command line.
+
+    Loads the input files and the model, generates a function call for
+    every prompt, and writes the results. Exits with status 1 if the
+    input files, the model or the output file cause an error. A prompt
+    that fails is skipped with an error message.
+    """
     args = parse_args()
 
     try:

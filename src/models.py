@@ -7,13 +7,21 @@ RealTypes = Union[bool, int, float, str]
 
 
 class schemaPrompt(BaseModel):
-    """One entry of the prompts file."""
+    """One entry of the prompts file.
+
+    Attributes:
+        prompt: The natural-language request.
+    """
 
     prompt: str
 
 
 class schemaDictParams(BaseModel):
-    """The type of one parameter (or of the return value)."""
+    """The type of one parameter, or of a function's return value.
+
+    Attributes:
+        type: The JSON type: 'number', 'integer', 'string' or 'boolean'.
+    """
 
     model_config = ConfigDict(extra='forbid')
 
@@ -21,7 +29,14 @@ class schemaDictParams(BaseModel):
 
 
 class schemaFunctions(BaseModel):
-    """One function definition from the functions file."""
+    """One function definition from the functions file.
+
+    Attributes:
+        name: The function name, e.g. 'fn_add_numbers'.
+        description: What the function does.
+        parameters: Maps each parameter name to its type.
+        returns: The type of the return value.
+    """
 
     model_config = ConfigDict(extra='forbid')
 
@@ -32,7 +47,13 @@ class schemaFunctions(BaseModel):
 
 
 class schemaOutput(BaseModel):
-    """One function call written to the output file."""
+    """One function call written to the output file.
+
+    Attributes:
+        prompt: The original natural-language request.
+        name: The name of the chosen function.
+        parameters: Maps each parameter name to its value.
+    """
 
     model_config = ConfigDict(extra='forbid')
 
